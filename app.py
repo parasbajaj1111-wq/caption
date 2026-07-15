@@ -5,15 +5,14 @@ import os
 import tempfile
 
 app = Flask(__name__)
-CORS(app) # Elementor/WordPress se request allow karne ke liye
+CORS(app)
 
-# AI Model Load kar rahe hain (Base model fast hota hai)
-print("Loading AI Model...")
-model = whisper.load_model("base")
+print("Loading AI Model (Tiny)...")
+# 'base' ki jagah 'tiny' use kar rahe hain taaki 512MB RAM mein fit aa jaye
+model = whisper.load_model("tiny")
 print("Model Loaded!")
 
 def format_timestamp(seconds):
-    """Seconds ko SRT format (HH:MM:SS,mmm) mein convert karta hai"""
     hours = int(seconds // 3600)
     minutes = int((seconds % 3600) // 60)
     secs = int(seconds % 60)
@@ -27,15 +26,13 @@ def generate_captions():
 
     file = request.files['video']
     
-    # Video ko temporary file mein save karo
     with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as temp_video:
         file.save(temp_video.name)
         temp_video_path = temp_video.name
 
     try:
-        # Whisper AI se Audio ko Text mein convert karna
-        # Note: Whisper Hindi audio ko English alphabets (Hinglish-ish) mein transcribe kar sakta hai
-        result = model.transcribe(temp_video_path)
+        # fp16=False karna zaroori hai bina GPU wale (free) server par
+        result = model.transcribe(temp_video_path, fp16=False)
         
         captions = []
         for segment in result["segments"]:
@@ -45,13 +42,8 @@ def generate_captions():
                 "text": segment["text"].strip()
             })
 
-        # Temporary video delete kar do memory bachane ke liye
         os.remove(temp_video_path)
-        
-        return jsonify({
-            "success": True, 
-            "captions": captions
-        })
+        return jsonify({"success": True, "captions": captions})
 
     except Exception as e:
         if os.path.exists(temp_video_path):
@@ -59,5 +51,6 @@ def generate_captions():
         return jsonify({"success": False, "error": str(e)}), 500
 
 if __name__ == '__main__':
-    # Server start on port 5000
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    # Render apna khud ka port assign karta hai, isliye port dynamic kiya hai
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port)
